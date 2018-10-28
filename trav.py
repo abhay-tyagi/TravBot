@@ -1,24 +1,32 @@
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.ui import Select
-from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import TimeoutException
+
+from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
+
+from random import uniform
+from threading import Timer
+
 import time 
 import sys
 import signal
+import select
+
 import pyautogui
+pyautogui.FAILSAFE = False
+
 import datetime
 import pickle
 import urllib
 import requests
-from random import uniform
 
 
 driver = None
@@ -32,22 +40,26 @@ homeLink = 'https://ts6.anglosphere.travian.com/'
 resourceLink = homeLink + 'dorf1.php'
 buildBase = 'build.php?id='
 buildLink = homeLink + buildBase
+heroBase = 'hero.php'
+heroLink = '?t='
 
 fieldNames = ['Iron Mine', 'Cropland', 'Woodcutter', 'Clay Pit']
 fields = {0: [1, 3, 14, 17], 2: [4, 7, 10, 11], 1: [5, 6, 16, 18], 3: [2, 8, 9, 12, 13, 15]}
+
+cropDifference = 60
+defaultTask = 'Troops'
 
 
 def signal_handler(sig, frame):
 	print("Quit Browser")
 	driver.quit()
 	sys.exit(0)
-
 signal.signal(signal.SIGINT, signal_handler)
 
 
 def goToElement(element):
 	position = element.location
-	pyautogui.moveTo(position['x']*screenSize[0]/a, (position['y'] + c)*screenSize[1]/b, uniform(0.5, 2.5))
+	pyautogui.moveTo(position['x']*screenSize[0]/a, (position['y'] + c)*screenSize[1]/b, uniform(0.5, 2.5), tween=pyautogui.easeInOutQuad)
 
 
 def initTravian(startNow):
@@ -57,28 +69,36 @@ def initTravian(startNow):
 	global c
 
 	if startNow:
-		options = Options()	
-		# options.add_argument("--headless")
-		# options.set_preference("dom.webnotifications.enabled", False)	
-		driver = webdriver.Firefox()
-		
+		options = webdriver.ChromeOptions()
+		options.add_argument("--start-maximized")
+		options.add_extension('./UltraSurf-Security,-Privacy-&-Unblock-VPN_v1.5.4.crx')
+		driver = webdriver.Chrome(chrome_options=options)
+
 		a = driver.execute_script("return outerWidth")
 		c = driver.execute_script("return outerHeight - innerHeight")
 		b = driver.execute_script("return outerHeight")
 
-		# options = webdriver.ChromeOptions()
-		# options.add_extension('./UltraSurf-Security,-Privacy-&-Unblock-VPN_v1.5.4.crx')
-		# driver = webdriver.Chrome(chrome_options=options)
-
 	driver.get(homeLink)
 
+	if startNow:
+		current_window = driver.current_window_handle
+		new_window = [window for window in driver.window_handles if window != current_window][0]
+		driver.switch_to.window(new_window)
+		driver.close()
+		driver.switch_to.window(current_window)
+
 	element_present = EC.presence_of_element_located((By.ID, "s1"))
-	WebDriverWait(driver, 60).until(element_present)
+
+	try:
+		WebDriverWait(driver, 10).until(element_present)
+	except Exception as e:
+		print(e.__class__.__name__)
+		driver.refresh()
 
 	username = driver.find_element_by_name('name')
-	username.send_keys('')
+	username.send_keys('Teutobod')
 	password = driver.find_element_by_name('password')
-	password.send_keys('')
+	password.send_keys('namo2014')
 
 	loginButton = driver.find_element_by_id('s1')
 	goToElement(loginButton)
@@ -210,7 +230,9 @@ def compareProduction():
 			number += digit
 		rateList[i] = int(number)
 
-	rateList[3] += 20
+	rateList[3] += cropDifference
+
+	print(rateList)
 	return findLowestField(rateList.index(min(rateList)))
 
 
@@ -220,13 +242,23 @@ def checkAdventure():
 	try:
 		heroPresent = driver.find_element_by_class_name('uhero')
 
+		print("a")
+
 		adventuresBubble = driver.find_element_by_xpath("//div[@class='speechBubbleContent']")
+
+		print("b")
+
 		numberAdventures = adventuresBubble.get_attribute('innerHTML')
 
+		print("c")
+		print(numberAdventures)
+
 		if numberAdventures.isdigit():
-			adventureButton = driver.find_element_by_class_name('adventureWhite')
-			goToElement(adventureButton)
-			adventureButton.click()
+			print("d")
+
+			driver.get(homeLink + heroBase + heroLink + str(3))
+
+			print("e")
 
 			adventure = driver.find_element_by_xpath("//td[@class='goTo']/a")
 			goToElement(adventure)
@@ -240,9 +272,45 @@ def checkAdventure():
 		else:
 			print("No adventures available")
 
-	except NoSuchElementException:
+	except Exception as e:
+		print(e.__class__.__name__)
 		print("No new adventures")
-		return
+
+	driver.get(resourceLink)
+
+
+def buildTroops():
+	driver.get(buildLink + str(32))
+
+	try:
+		numberTroops = driver.find_element_by_xpath("//div[@class='details']/a")
+
+		if str(numberTroops.get_attribute('innerHTML')) == '0':
+			print("Not enough resources")
+		else:
+			goToElement(numberTroops)
+			numberTroops.click()
+
+			trainButton = driver.find_element_by_class_name('startTraining')
+			goToElement(trainButton)
+			trainButton.click()
+
+	except Exception as e:
+		print(e.__class__.__name__)
+		print("No troops could be trained")
+
+	driver.get(resourceLink)
+
+
+def takeTask():
+	print("Enter a task: ", end='')
+	i, o, e = select.select([sys.stdin], [], [], 10)
+
+	if (i):
+		return sys.stdin.readline().strip()
+	else:
+		print("No task received. Continuing default routine")
+		return defaultTask
 
 
 if __name__ == "__main__":
@@ -255,20 +323,26 @@ if __name__ == "__main__":
 
 		verifyLink(resourceLink)
 
-		time.sleep(2)
+		task = takeTask()
 
-		timeString = compareProduction()
-		waitingTime = processTime(timeString)
+		waitingTime = ''
+		if task == 'Fields':
+			timeString = compareProduction()
+			waitingTime = processTime(timeString)
 
-		print("Will wait for: " + str(waitingTime) + " at " + str(datetime.datetime.now()))
+			if waitingTime == 0 or defaultTask != 'Fields':
+				waitingTime = 300
+
+		elif task == 'Troops':
+			buildTroops()
+
+		if waitingTime == '':
+			waitingTime = 300
+
 		checkAdventure()
 		taskReward()
 
-		if waitingTime > 0:
-			time.sleep(waitingTime)
-		else:
-			time.sleep(300)
+		print("Will wait till: " + str(datetime.datetime.now() + datetime.timedelta(seconds=waitingTime)))
+		time.sleep(waitingTime)
 
-
-	a = input()
 	driver.quit()
