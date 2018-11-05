@@ -15,6 +15,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from random import uniform
 from threading import Timer
 
+import random
 import time 
 import sys
 import signal
@@ -36,30 +37,81 @@ a = None
 c = None
 b = None
 
+
+username = 'Teutobod'
+password = 'namo2014'
+
 homeLink = 'https://ts6.anglosphere.travian.com/'
 resourceLink = homeLink + 'dorf1.php'
 buildBase = 'build.php?id='
 buildLink = homeLink + buildBase
 heroBase = 'hero.php'
 heroLink = '?t='
+reportBase = 'berichte.php'
+villageChangeBase = '?newdid='
+villageChangeLink = resourceLink + villageChangeBase
 
 fieldNames = ['Iron Mine', 'Cropland', 'Woodcutter', 'Clay Pit']
-fields = {0: [1, 3, 14, 17], 2: [4, 7, 10, 11], 1: [5, 6, 16, 18], 3: [2, 8, 9, 12, 13, 15]}
+fields = [
+			{0: [1, 3, 14, 17], 2: [4, 7, 10, 11], 1: [5, 6, 16, 18], 3: [2, 8, 9, 12, 13, 15]}, 
+			{0: [3, 14, 17], 2: [1, 4, 7, 10, 11], 1: [5, 6, 16, 18], 3: [2, 8, 9, 12, 13, 15]}
+		 ]
 
-cropDifference = 60
-defaultTask = 'Troops'
+buildTarget = [[], []]
+oneTimeTasks = [[], []]
+villages = ['00 Rome', '01 Ephesus']
+newdid = ['3689', '9064']
+
+lastAttackEmail = ''
+lastMessageEmail = ''
+lastFarmlist = ''
+lastReportCheck = ''
+
+adventureFile = "adventureCheck.txt"
+messageFile = "messageCheck.txt"
+reportFile = "reportCheck.txt"
+farmFile = "farmSend.txt"
+attackFile = "attackCheck.txt"
+
+cropDifference = [400, 100]
+defaultTask = []       # '' or 'Troops' or 'Fields' or 'Hybrid'
 
 
-def signal_handler(sig, frame):
-	print("Quit Browser")
+def stop_handler(sig, frame):
+	print("\nQuit Browser")
 	driver.quit()
 	sys.exit(0)
-signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGINT, stop_handler)
+
+
+def pause_handler(signum, frame):
+    print("\nPaused")
+    signal.pause()
+signal.signal(signal.SIGTSTP, pause_handler)
 
 
 def goToElement(element):
 	position = element.location
-	pyautogui.moveTo(position['x']*screenSize[0]/a, (position['y'] + c)*screenSize[1]/b, uniform(0.5, 2.5), tween=pyautogui.easeInOutQuad)
+	pyautogui.moveTo(20 + position['x']*screenSize[0]/a, 15 + (position['y'] + c)*screenSize[1]/b, uniform(0.5, 2.5), tween=pyautogui.easeInOutQuad)
+
+
+def enableVPN():
+	pyautogui.moveTo(1270, 80, 3)
+	pyautogui.click()
+	pyautogui.moveTo(1100, 410, 3)
+	pyautogui.click()
+
+
+def writeToFile(fileName, msg):
+	with open(fileName, 'w') as f:
+		f.write(str(msg))
+
+def readFromFile(fileName):
+	ans = ''
+	with open(fileName) as f:
+		ans = f.read()
+
+	return ans
 
 
 def initTravian(startNow):
@@ -71,21 +123,25 @@ def initTravian(startNow):
 	if startNow:
 		options = webdriver.ChromeOptions()
 		options.add_argument("--start-maximized")
-		options.add_extension('./UltraSurf-Security,-Privacy-&-Unblock-VPN_v1.5.4.crx')
+		options.add_extension('./Browsec-VPN-Free-and-Unlimited-VPN_v3.21.10.crx')
 		driver = webdriver.Chrome(chrome_options=options)
 
 		a = driver.execute_script("return outerWidth")
 		c = driver.execute_script("return outerHeight - innerHeight")
 		b = driver.execute_script("return outerHeight")
 
+		enableVPN()
+
 	driver.get(homeLink)
 
-	if startNow:
+	try:
 		current_window = driver.current_window_handle
 		new_window = [window for window in driver.window_handles if window != current_window][0]
 		driver.switch_to.window(new_window)
 		driver.close()
 		driver.switch_to.window(current_window)
+	except Exception as e:
+		print(e.__class__.__name__)
 
 	element_present = EC.presence_of_element_located((By.ID, "s1"))
 
@@ -95,14 +151,20 @@ def initTravian(startNow):
 		print(e.__class__.__name__)
 		driver.refresh()
 
-	username = driver.find_element_by_name('name')
-	username.send_keys('Teutobod')
-	password = driver.find_element_by_name('password')
-	password.send_keys('namo2014')
+	try:
+		u = driver.find_element_by_name('name')
+		u.send_keys(username)
+		p = driver.find_element_by_name('password')
+		p.send_keys(password)
 
-	loginButton = driver.find_element_by_id('s1')
-	goToElement(loginButton)
-	loginButton.click()
+		loginButton = driver.find_element_by_id('s1')
+		goToElement(loginButton)
+		loginButton.click()
+	except Exception as e:
+		print(e.__class__.__name__)
+		return False
+
+	return True
 
 
 def processTime(timeStr):
@@ -131,28 +193,35 @@ def processTime(timeStr):
 
 
 def verifyLink(link):
-	if driver.current_url != link:
-			driver.get(link)
-
-
-def taskReward():
 	try:
-		newReward = driver.find_element_by_class_name('bigSpeechBubble')
+		if driver.current_url != link:
+			driver.get(link)
+			return False
+		
+		return True
+	except Exception as e:
+		print("Trying to verify link. ", end='')
+		print(e.__class__.__name__)
 
-		rewardButton = driver.find_element_by_class_name('reward')
-		goToElement(rewardButton)
-		rewardButton.click()
 
-		element_present = EC.presence_of_element_located((By.CLASS_NAME, "questButtonGainReward"))
-		WebDriverWait(driver, 60).until(element_present)		
+# def taskReward():
+# 	try:
+# 		newReward = driver.find_element_by_class_name('bigSpeechBubble')
 
-		gainReward = driver.find_element_by_class_name('questButtonGainReward')
-		goToElement(gainReward)
-		gainReward.click()
+# 		rewardButton = driver.find_element_by_class_name('reward')
+# 		goToElement(rewardButton)
+# 		rewardButton.click()
 
-		print("Collected Reward")
-	except NoSuchElementException:
-		print("No new reward")
+# 		element_present = EC.presence_of_element_located((By.CLASS_NAME, "questButtonGainReward"))
+# 		WebDriverWait(driver, 60).until(element_present)		
+
+# 		gainReward = driver.find_element_by_class_name('questButtonGainReward')
+# 		goToElement(gainReward)
+# 		gainReward.click()
+
+# 		print("Collected Reward")
+# 	except NoSuchElementException:
+# 		pass
 
 
 def upgradeField(id):
@@ -165,14 +234,17 @@ def upgradeField(id):
 		goToElement(buildButton)
 		buildButton.click()
 
+		driver.get(resourceLink)
 		return waitingTime
-	except NoSuchElementException:
-		driver.back()
+	except Exception as e:
+		print("Trying to upgrade. ", end='')
+		print(e.__class__.__name__)
+		driver.get(resourceLink)
 		return 0
 
 
-def findLowestField(resourceID):
-	fieldList = fields[resourceID]
+def findLowestField(ind, resourceID):
+	fieldList = fields[ind][resourceID]
 
 	levels = []
 	for field in fieldList:
@@ -181,11 +253,7 @@ def findLowestField(resourceID):
 		level = level[len(level) - 1]
 		levels.append(int(level))
 
-	print(levels)
-	target = fieldList[levels.index(min(levels))]
-
-	print(target)
-	return upgradeField(target)
+	return [fieldList[levels.index(min(levels))], min(levels)]
 
 
 def ongoingField():
@@ -200,81 +268,175 @@ def ongoingField():
 		for construction in constructions:
 			for field in fieldNames:
 				if construction.find(field) != -1:
-					print(field)
+					print(field, end=' ')
 					return True
 
 		return False
 	except NoSuchElementException:
-		print("No constructions.")
 		return False
 
 
-def compareProduction():
-	verifyLink(resourceLink)
+def upgradeLowest(ind):
+	try:
+		verifyLink(resourceLink)
 
-	if(ongoingField()):
-		print("Ongoing construction")
-		return 300
+		upkeep = driver.find_element_by_id("stockBarFreeCrop").get_attribute('innerHTML')
+		upkeep = upkeep.replace('\u202d', '')
+		upkeep = upkeep.replace('\u202c', '')
 
-	element_present = EC.presence_of_element_located((By.ID, "production"))
-	WebDriverWait(driver, 60).until(element_present)
+		flag = 0
+		if int(upkeep) < 5:
+			flag = 1
 
-	rateList = driver.find_elements_by_xpath("//table[@id='production']/tbody/tr/td[@class='num']")
+		lowestFields = []
+		for i in range(0, 4):
+			lowestFields.append(findLowestField(ind, i))
 
-	for i in range(0, len(rateList)):
-		rateStr = list(rateList[i].get_attribute('innerHTML'))
-		rateStr = rateStr[rateStr.index('\u202d') + 1: rateStr.index('\u202c')]
+		if flag == 0:
+			lowestFields.pop()
 
-		number = ''
-		for digit in rateStr:
-			number += digit
-		rateList[i] = int(number)
+		targetField = None
+		lowLevel = 1000
+		for lowestField in lowestFields:
+			if lowestField[1] < lowLevel:
+				targetField = lowestField[0]
+				lowLevel = lowestField[1]
 
-	rateList[3] += cropDifference
+		return upgradeField(targetField)
+	except Exception as e:
+		print("Tried to upgrade lowest. ", end='')
+		print(e.__class__.__name__)
 
-	print(rateList)
-	return findLowestField(rateList.index(min(rateList)))
+
+def compareProduction(ind):
+	try:
+		verifyLink(resourceLink)
+
+		if(ongoingField()):
+			print("ongoing.")
+			return 300
+
+		upkeep = driver.find_element_by_id("stockBarFreeCrop").get_attribute('innerHTML')
+		upkeep = upkeep.replace('\u202d', '')
+		upkeep = upkeep.replace('\u202c', '')
+
+		flag = 0
+		if int(upkeep) < 5:
+			flag = 1
+
+		element_present = EC.presence_of_element_located((By.ID, "production"))
+		WebDriverWait(driver, 60).until(element_present)
+
+		rateList = driver.find_elements_by_xpath("//table[@id='production']/tbody/tr/td[@class='num']")
+
+		for i in range(0, len(rateList)):
+			rateList[i] = rateList[i].get_attribute('innerHTML')
+			rateList[i] = rateList[i].replace('\u202d', '')
+			rateList[i] = rateList[i].replace('\u202c', '')
+			rateList[i] = int(rateList[i])
+
+		rateList[3] += cropDifference[ind]
+		if flag == 1:
+			rateList[3] -= 1000
+
+		return upgradeField(findLowestField(ind, rateList.index(min(rateList)))[0])
+	except Exception as e:
+		print("Tried to compare production. ", end='')
+		print(e.__class__.__name__)
 
 
 def checkAdventure():
-	verifyLink(resourceLink)
-
 	try:
-		heroPresent = driver.find_element_by_class_name('uhero')
-
-		print("a")
-
-		adventuresBubble = driver.find_element_by_xpath("//div[@class='speechBubbleContent']")
-
-		print("b")
-
-		numberAdventures = adventuresBubble.get_attribute('innerHTML')
-
-		print("c")
-		print(numberAdventures)
-
-		if numberAdventures.isdigit():
-			print("d")
-
-			driver.get(homeLink + heroBase + heroLink + str(3))
-
-			print("e")
-
-			adventure = driver.find_element_by_xpath("//td[@class='goTo']/a")
-			goToElement(adventure)
-			adventure.click()
-
-			finalSend = driver.find_element_by_xpath("//form[@class='adventureSendButton']/div/button")
-			goToElement(finalSend)
-			finalSend.click()
-
-			print("Sent on adventure")
-		else:
-			print("No adventures available")
-
+		lastAdventureCheck = readFromFile(adventureFile)
+		if datetime.datetime.strptime(lastAdventureCheck, '%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(seconds=random.randint(1500, 1800)) > datetime.datetime.now():
+			return
 	except Exception as e:
 		print(e.__class__.__name__)
-		print("No new adventures")
+		print("No last adventure check")
+
+	verifyLink(resourceLink)
+	try:
+		writeToFile(adventureFile, datetime.datetime.now())
+
+		heroPresent = driver.find_element_by_class_name('uhero')
+		driver.get(homeLink + heroBase + heroLink + str(3))
+
+		adventure = driver.find_element_by_xpath("//td[@class='goTo']/a")
+		goToElement(adventure)
+		adventure.click()
+
+		finalSend = driver.find_element_by_xpath("//form[@class='adventureSendButton']/div/button")
+		goToElement(finalSend)
+		finalSend.click()
+			
+		print("Sent on adventure")
+	except Exception as e:
+		print("Trying to check adventures. ", end='')
+		print(e.__class__.__name__)
+
+	driver.get(resourceLink)
+
+
+def tryGold():
+	try:
+		npc = driver.find_element_by_xpath("//button[@value='Exchange resources']")
+
+		if npc.get_attribute('class') == 'gold disabled':
+			return False
+		else:
+			goToElement(npc)
+			npc.click()
+
+			element_present = EC.presence_of_element_located((By.XPATH, "//button[@value='Distribute remaining resources.']"))
+			WebDriverWait(driver, 10).until(element_present)
+
+			distributeButton = driver.find_element_by_xpath("//button[@value='Distribute remaining resources.']")
+			goToElement(distributeButton)
+			distributeButton.click()
+
+			element_present = EC.presence_of_element_located((By.ID, "npc_market_button"))
+			WebDriverWait(driver, 10).until(element_present)
+
+			finalButton = driver.find_element_by_id('npc_market_button')
+			goToElement(finalButton)
+			finalButton.click()
+
+			return True
+	except:
+		return False
+
+
+def startTraining(numberTroops, link=''):
+	if link != '' and driver.current_url != link:
+		driver.get(link)
+
+	try:
+		goToElement(numberTroops)
+		numberTroops.click()
+
+		trainButton = driver.find_element_by_class_name('startTraining')
+		goToElement(trainButton)
+		trainButton.click()
+	except:
+		print("Tried to start Training. ", end=' ')
+		print(e.__class__.__name__)
+
+
+def trainSettlers():
+	driver.get(homeLink + "build.php?s=1&id=21")
+	try:
+		numberTroops = driver.find_element_by_xpath("//div[@class='details']/a")
+
+		if str(numberTroops.get_attribute('innerHTML')) != '0':
+			startTraining(numberTroops, homeLink + "build.php?s=1&id=21") 
+		elif tryGold():
+			startTraining(numberTroops, homeLink + "build.php?s=1&id=21")
+		else:
+			print("Not enough resources for a settler")
+
+	except Exception as e:
+		print("Tried to train settler. ", end=' ')
+		print(e.__class__.__name__)
 
 	driver.get(resourceLink)
 
@@ -286,63 +448,189 @@ def buildTroops():
 		numberTroops = driver.find_element_by_xpath("//div[@class='details']/a")
 
 		if str(numberTroops.get_attribute('innerHTML')) == '0':
-			print("Not enough resources")
+			print("Not enough resources for troops")
 		else:
-			goToElement(numberTroops)
-			numberTroops.click()
-
-			trainButton = driver.find_element_by_class_name('startTraining')
-			goToElement(trainButton)
-			trainButton.click()
+			startTraining(numberTroops)
 
 	except Exception as e:
+		print("Trying to build troops. ", end='')
 		print(e.__class__.__name__)
-		print("No troops could be trained")
 
 	driver.get(resourceLink)
 
 
-def takeTask():
-	print("Enter a task: ", end='')
-	i, o, e = select.select([sys.stdin], [], [], 10)
+def createTradeRoutes(ind):
+	try:
+		for hr in range(0, 24):
+			driver.get(buildLink + str(22))
+
+			createRoute = driver.find_element_by_xpath("//a[contains(@href, 'gid=17&option=1')]")
+			goToElement(createRoute)
+			createRoute.click()
+
+			for res in range(1, 5):
+				amountField = driver.find_element_by_id("r" + str(res))
+				goToElement(amountField)
+				amountField.click()
+				amountField.send_keys(str(300) if res == 4 else str(500))
+
+			timeOfSupply = driver.find_element_by_xpath("//select[@id='userHour']/option[@value='" + str(hr) + "']")
+			timeOfSupply.click()
+
+			saveButton = driver.find_element_by_id('tradeSaveButton')
+			goToElement(saveButton)
+			saveButton.click()
+	except Exception as e:
+		print("Tried to create trade routes. ", end='')
+		print(e.__class__.__name__)
+
+	driver.get(resourceLink)
+
+
+def sendFarms():
+	try:
+		lastFarmlist = readFromFile(farmFile)
+		if datetime.datetime.strptime(lastFarmlist, '%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(seconds=random.randint(3500, 3600)) > datetime.datetime.now():
+			return
+	except Exception as e:
+		print(e.__class__.__name__)
+		print("No last farmlist sent")
+
+	driver.get('https://ts6.anglosphere.travian.com/build.php?tt=99&id=39')
+
+
+	try:
+		selectAll = driver.find_element_by_xpath("//div[@class='markAll']/input")
+		goToElement(selectAll)
+		selectAll.click()
+
+		sendButton = driver.find_element_by_xpath("//button[@value='Start raid']")
+		goToElement(sendButton)
+		sendButton.click()
+
+		writeToFile(farmFile, datetime.datetime.now())
+
+	except Exception as e:
+		print("Trying to send farmlist. ", end='')
+		print(e.__class__.__name__)
+
+	driver.get(resourceLink)
+
+
+def takeTask(ind):
+	global defaultTask
+	i, o, e = select.select([sys.stdin], [], [], 5)
 
 	if (i):
-		return sys.stdin.readline().strip()
+		defaultTask[ind] = sys.stdin.readline().strip()
 	else:
 		print("No task received. Continuing default routine")
-		return defaultTask
+		return
+
+
+def gotoVillage(ind):
+	driver.get(resourceLink)
+
+	try:
+		villageString = villageChangeBase + newdid[ind]		
+		villageName = driver.find_element_by_xpath("//li/a[contains(@href, '" + villageString + "')]")
+		goToElement(villageName)
+		villageName.click()
+
+		# currentVillage = driver.find_element_by_id('villageNameField')
+		# print("Came to village ", currentVillage.get_attribute('innerHTML'))
+	except Exception as e:
+		print("Tried to change village. ", end='')
+		print(e.__class__.__name__)
+
+
+def findDefaultTasks():
+	global defaultTask
+	defaultTask = []
+
+	with open("defaultTasks.txt") as f:
+		tasks = f.readlines()
+
+	for task in tasks:
+		defaultTask.append(task.strip())
+
+
+def findBuildTargets():
+	global buildTarget
+	buildTarget = [[], []]
+
+	with open("buildTasks.txt") as f:
+		targets = f.readlines()
+
+	i = 0
+	for target in targets:
+		target = target.strip()
+		target = target.split(',')
+
+		for task in target:
+			buildTarget[i].append(target)
+		i += 1
+
+
+def playTravian():
+	global defaultTask
+
+	try:
+		while(initTravian(True) == False):
+			initTravian(False)
+
+		while True:
+			findDefaultTasks()
+			findBuildTargets()
+
+			for ind in range(0, len(villages)):
+				gotoVillage(ind)
+
+				print("Enter a task for village ", ind + 1, ": ")
+				takeTask(ind)
+
+				if defaultTask[ind] == 'Fields':
+					timeString = compareProduction(ind)
+				elif defaultTask[ind] == 'Troops':
+					buildTroops()
+				elif defaultTask[ind] == 'Hybrid':
+					timeString = upgradeLowest(ind)
+					# timeString = compareProduction(ind)
+					for building in buildTarget[ind]:
+						timeString = upgradeField(building)
+
+						if timeString != 0:
+							break
+
+				elif defaultTask[ind] == '':
+					timeString = upgradeField(ind, 27)
+
+				for task in oneTimeTasks[ind]:
+					if task == 'TradeRoute':
+						createTradeRoutes(ind)
+
+				oneTimeTasks[ind] = []
+
+			waitingTime = random.randint(300, 600)
+
+			gotoVillage(0)
+			checkAdventure()
+			sendFarms()
+
+			print("Waiting from " + str(datetime.datetime.now()) + " to " + str(datetime.datetime.now() + datetime.timedelta(seconds=waitingTime)) + "\n\n")
+			time.sleep(waitingTime)
+
+		driver.quit()
+	except Exception as e:
+		print(e.__class__.__name__)
 
 
 if __name__ == "__main__":
-
-	initTravian(True)
-
 	while True:
-		if driver.current_url == homeLink:
-			initTravian(False)
+		playTravian()
 
-		verifyLink(resourceLink)
-
-		task = takeTask()
-
-		waitingTime = ''
-		if task == 'Fields':
-			timeString = compareProduction()
-			waitingTime = processTime(timeString)
-
-			if waitingTime == 0 or defaultTask != 'Fields':
-				waitingTime = 300
-
-		elif task == 'Troops':
-			buildTroops()
-
-		if waitingTime == '':
-			waitingTime = 300
-
-		checkAdventure()
-		taskReward()
-
-		print("Will wait till: " + str(datetime.datetime.now() + datetime.timedelta(seconds=waitingTime)))
-		time.sleep(waitingTime)
-
-	driver.quit()
+		try:
+			driver.quit()
+		except Exception as e:
+			print("Tried to quit driver. ", end='')
+			print(e.__class__.__name__)
