@@ -57,24 +57,20 @@ fields = [
 			{0: [3, 14, 17], 2: [1, 4, 7, 10, 11], 1: [5, 6, 16, 18], 3: [2, 8, 9, 12, 13, 15]}
 		 ]
 
-buildTarget = [[], []]
 oneTimeTasks = [[], []]
 villages = ['00 Rome', '01 Ephesus']
 newdid = ['3689', '9064']
-
-lastAttackEmail = ''
-lastMessageEmail = ''
-lastFarmlist = ''
-lastReportCheck = ''
 
 adventureFile = "adventureCheck.txt"
 messageFile = "messageCheck.txt"
 reportFile = "reportCheck.txt"
 farmFile = "farmSend.txt"
 attackFile = "attackCheck.txt"
+troopFile = "toTrain.txt"
+taskFile = "buildTasks.txt"
+defaultTaskFile = "defaultTasks.txt"
 
 cropDifference = [400, 100]
-defaultTask = []       # '' or 'Troops' or 'Fields' or 'Hybrid'
 
 
 def stop_handler(sig, frame):
@@ -276,13 +272,21 @@ def ongoingField():
 		return False
 
 
+def removeCrap(inputString):
+	inputString = inputString.replace('\u202d', '')
+	inputString = inputString.replace('\u202c', '')
+	return inputString
+
+
 def upgradeLowest(ind):
 	try:
 		verifyLink(resourceLink)
 
-		upkeep = driver.find_element_by_id("stockBarFreeCrop").get_attribute('innerHTML')
-		upkeep = upkeep.replace('\u202d', '')
-		upkeep = upkeep.replace('\u202c', '')
+		if ongoingField():
+			print("ongoing.")
+			return 300
+
+		upkeep = removeCrap(driver.find_element_by_id("stockBarFreeCrop").get_attribute('innerHTML'))
 
 		flag = 0
 		if int(upkeep) < 5:
@@ -302,6 +306,9 @@ def upgradeLowest(ind):
 				targetField = lowestField[0]
 				lowLevel = lowestField[1]
 
+		if flag == 1:
+			targetField = lowestFields[len(lowestFields) - 1][0]
+
 		return upgradeField(targetField)
 	except Exception as e:
 		print("Tried to upgrade lowest. ", end='')
@@ -312,13 +319,11 @@ def compareProduction(ind):
 	try:
 		verifyLink(resourceLink)
 
-		if(ongoingField()):
+		if ongoingField():
 			print("ongoing.")
 			return 300
 
-		upkeep = driver.find_element_by_id("stockBarFreeCrop").get_attribute('innerHTML')
-		upkeep = upkeep.replace('\u202d', '')
-		upkeep = upkeep.replace('\u202c', '')
+		upkeep = removeCrap(driver.find_element_by_id("stockBarFreeCrop").get_attribute('innerHTML'))
 
 		flag = 0
 		if int(upkeep) < 5:
@@ -330,10 +335,7 @@ def compareProduction(ind):
 		rateList = driver.find_elements_by_xpath("//table[@id='production']/tbody/tr/td[@class='num']")
 
 		for i in range(0, len(rateList)):
-			rateList[i] = rateList[i].get_attribute('innerHTML')
-			rateList[i] = rateList[i].replace('\u202d', '')
-			rateList[i] = rateList[i].replace('\u202c', '')
-			rateList[i] = int(rateList[i])
+			rateList[i] = int(removeCrap(rateList[i].get_attribute('innerHTML')))
 
 		rateList[3] += cropDifference[ind]
 		if flag == 1:
@@ -441,11 +443,16 @@ def trainSettlers():
 	driver.get(resourceLink)
 
 
-def buildTroops():
+def buildTroops(ind):
 	driver.get(buildLink + str(32))
 
 	try:
-		numberTroops = driver.find_element_by_xpath("//div[@class='details']/a")
+		with open(troopFile) as f:
+			trainData = f.readlines()
+
+		trainData = trainData[ind].strip()
+		print(trainData)
+		numberTroops = driver.find_elements_by_xpath("//div[@class='details']/a")[int(trainData) - 1]
 
 		if str(numberTroops.get_attribute('innerHTML')) == '0':
 			print("Not enough resources for troops")
@@ -517,15 +524,14 @@ def sendFarms():
 	driver.get(resourceLink)
 
 
-def takeTask(ind):
-	global defaultTask
+def takeTask(defaultTask, ind):
 	i, o, e = select.select([sys.stdin], [], [], 5)
 
 	if (i):
-		defaultTask[ind] = sys.stdin.readline().strip()
+		return sys.stdin.readline().strip()
 	else:
 		print("No task received. Continuing default routine")
-		return
+		return defaultTask[ind]
 
 
 def gotoVillage(ind):
@@ -545,21 +551,21 @@ def gotoVillage(ind):
 
 
 def findDefaultTasks():
-	global defaultTask
 	defaultTask = []
 
-	with open("defaultTasks.txt") as f:
+	with open(defaultTaskFile) as f:
 		tasks = f.readlines()
 
 	for task in tasks:
 		defaultTask.append(task.strip())
 
+	return defaultTask
+
 
 def findBuildTargets():
-	global buildTarget
 	buildTarget = [[], []]
 
-	with open("buildTasks.txt") as f:
+	with open(taskFile) as f:
 		targets = f.readlines()
 
 	i = 0
@@ -571,36 +577,37 @@ def findBuildTargets():
 			buildTarget[i].append(target)
 		i += 1
 
+	return buildTarget
+
 
 def playTravian():
-	global defaultTask
-
 	try:
 		while(initTravian(True) == False):
 			initTravian(False)
 
 		while True:
-			findDefaultTasks()
-			findBuildTargets()
+			defaultTask = findDefaultTasks()
+			buildTarget = findBuildTargets()
 
 			for ind in range(0, len(villages)):
 				gotoVillage(ind)
 
 				print("Enter a task for village ", ind + 1, ": ")
-				takeTask(ind)
+				defaultTask[ind] = takeTask(defaultTask, ind)
 
 				if defaultTask[ind] == 'Fields':
 					timeString = compareProduction(ind)
 				elif defaultTask[ind] == 'Troops':
-					buildTroops()
+					buildTroops(ind)
 				elif defaultTask[ind] == 'Hybrid':
 					timeString = upgradeLowest(ind)
-					# timeString = compareProduction(ind)
-					for building in buildTarget[ind]:
-						timeString = upgradeField(building)
 
-						if timeString != 0:
-							break
+					if buildTarget[ind] != []:
+						for building in buildTarget[ind]:
+							timeString = upgradeField(building)
+
+							if timeString != 0:
+								break
 
 				elif defaultTask[ind] == '':
 					timeString = upgradeField(ind, 27)
