@@ -38,8 +38,8 @@ c = None
 b = None
 
 
-username = 'Teutobod'
-password = 'namo2014'
+username = ''
+password = ''
 
 homeLink = 'https://ts6.anglosphere.travian.com/'
 resourceLink = homeLink + 'dorf1.php'
@@ -443,15 +443,17 @@ def trainSettlers():
 	driver.get(resourceLink)
 
 
-def buildTroops(ind):
-	driver.get(buildLink + str(32))
+def buildTroops(ind, category):
+	if category == 'Infantry':
+		driver.get(buildLink + str(32))
+	else:
+		driver.get(buildLink + str(27))
 
 	try:
 		with open(troopFile) as f:
 			trainData = f.readlines()
 
 		trainData = trainData[ind].strip()
-		print(trainData)
 		numberTroops = driver.find_elements_by_xpath("//div[@class='details']/a")[int(trainData) - 1]
 
 		if str(numberTroops.get_attribute('innerHTML')) == '0':
@@ -497,7 +499,7 @@ def createTradeRoutes(ind):
 def sendFarms():
 	try:
 		lastFarmlist = readFromFile(farmFile)
-		if datetime.datetime.strptime(lastFarmlist, '%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(seconds=random.randint(3500, 3600)) > datetime.datetime.now():
+		if datetime.datetime.strptime(lastFarmlist, '%Y-%m-%d %H:%M:%S.%f') + datetime.timedelta(seconds=random.randint(2700, 2800)) > datetime.datetime.now():
 			return
 	except Exception as e:
 		print(e.__class__.__name__)
@@ -543,8 +545,6 @@ def gotoVillage(ind):
 		goToElement(villageName)
 		villageName.click()
 
-		# currentVillage = driver.find_element_by_id('villageNameField')
-		# print("Came to village ", currentVillage.get_attribute('innerHTML'))
 	except Exception as e:
 		print("Tried to change village. ", end='')
 		print(e.__class__.__name__)
@@ -597,8 +597,8 @@ def playTravian():
 
 				if defaultTask[ind] == 'Fields':
 					timeString = compareProduction(ind)
-				elif defaultTask[ind] == 'Troops':
-					buildTroops(ind)
+				elif defaultTask[ind] == 'Infantry' or defaultTask[ind] == 'Cavalry':
+					buildTroops(ind, defaultTask[ind])
 				elif defaultTask[ind] == 'Hybrid':
 					timeString = upgradeLowest(ind)
 
@@ -609,8 +609,8 @@ def playTravian():
 							if timeString != 0:
 								break
 
-				elif defaultTask[ind] == '':
-					timeString = upgradeField(ind, 27)
+				elif defaultTask[ind] == 'Build':
+					timeString = upgradeField(35)
 
 				for task in oneTimeTasks[ind]:
 					if task == 'TradeRoute':
